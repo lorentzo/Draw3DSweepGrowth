@@ -5,12 +5,23 @@ import bmesh
 
 # TODO
 # Try out different isotropic shapes
+# Spawn parameter t
+#  + spawn only after t > a
+# Colors:
+#   + gradient one color
+#   + gradient multiple colors
+#   + uniform color with few random colors
+# Experiment with forces being applied on rigid body
+#   + wind
+#   + charge
+#   + docs!
 # Experiment with rigid body parameters
 #   + Animate damping: first set to 1.0 so it is fixed, then set to 0 so it falls 
 #   + Animate damping without gravity: fly away
 #   + Animate mass and gravity
 #   + animate wind -> forces in rigid body world
 #   + experiment with friction and bounciness
+#   + randomized properties
 # Cool animated scene with: cubes, spheres (ico subdiv=3), polyherons (ico subdiv=1), penta spheres
 #   + Plant where spawned elements are flower
 #   + spread over some object
@@ -19,6 +30,7 @@ import bmesh
 #   + smoke from a rocket
 #   + Add different shapes which affect the growth
 #   + smoke from a factory tower
+
 
 #########################################################################
 # MODELING HELPERS.
@@ -259,16 +271,17 @@ def instance_on_path(base_obj=None, scale_range=[1,2], curve_path=None, dt=0.01,
     if not base_obj:
         return instances
     t = 0
+    cols = generate_5_random_colors_that_fit()
     while t <= 1.0:
         # Create instance in local space. Configure its rotation.
-        inst = create_instance(base_obj, rot_vec=mathutils.Vector((3,3,0)), collection_name=collection_name)
+        #inst = create_instance(base_obj, rot_vec=mathutils.Vector((3,3,0)), collection_name=collection_name)
+        inst = copy_obj(base_obj, collection_name=collection_name)
         # Animate scale.
         inst.scale = (0,0,0)
         inst.keyframe_insert(data_path="scale", frame=frame_start)
         adaptive_frame_start = lerp(t, frame_start, frame_end)
         inst.keyframe_insert(data_path="scale", frame=adaptive_frame_start)
         inst_scale = lerp(1.0-t, scale_range[0], scale_range[1])
-        print(inst_scale)
         inst.scale = mathutils.Vector((inst_scale, inst_scale, inst_scale))
         inst.keyframe_insert(data_path="scale", frame=frame_end)
         # Position on path using "FOLLOW PATH" constraint
@@ -277,6 +290,13 @@ def instance_on_path(base_obj=None, scale_range=[1,2], curve_path=None, dt=0.01,
         follow_path_constraint.use_fixed_location = True
         follow_path_constraint.offset_factor = t
         #set_animation_fcurve(inst, "LINEAR")
+        # Add material.
+        col = cols[0]
+        #if t < 0.5:
+        #    col = cols[1]
+        col.s = lerp(t, 0.3, 1.0)
+        mat = create_material(inst.name+"_mat", "diffuse", color=col)
+        inst.data.materials.append(mat)
         t += dt
         instances.append(inst)
     return instances
@@ -287,7 +307,7 @@ def main():
     sketch_collection_name = "sketch_collection"
     working_collection_name = "working_collection"
     spawn_types = {"sphere": "SPHERE", "box": "BOX", "convex_hull": "CONVEX_HULL"}
-    spawn_type = "sphere"
+    spawn_type = "convex_hull"
 
     # Create rigid body world.
     if bpy.context.scene.rigidbody_world == None:
@@ -296,37 +316,52 @@ def main():
         bpy.context.scene.rigidbody_world.collection = bpy.data.collections.new("RigidBodyCubeCollection")
     bpy.context.scene.use_gravity = False
 
+    # Create base objects
     base_cube = create_cube(size=1, location=mathutils.Vector((0,0,0)), collection_name=working_collection_name)
     base_sphere = create_sphere(radius=1, subdivisions=3, location=mathutils.Vector((0,0,0)), dest_collection_name=working_collection_name)
     base_polyhedron = create_sphere(radius=1, subdivisions=1, location=mathutils.Vector((0,0,0)), dest_collection_name=working_collection_name)
-    base_penta_sphere = create_penta_sphere(radius=1.0, location=mathutils.Vector((0,0,0)), dest_collection_name=None)
+    base_penta_sphere = create_penta_sphere(radius=1.0, location=mathutils.Vector((0,0,0)), dest_collection_name=working_collection_name)
+    
+    # For each sketch create animation.
     for sketch in bpy.data.collections[sketch_collection_name].all_objects:
-        instances = instance_on_path(base_obj=base_penta_sphere, scale_range=[0.1,0.9], curve_path=sketch, dt=0.005, frame_start=1, frame_end=n_frames, collection_name=working_collection_name)
+        instances = instance_on_path(base_obj=base_cube, scale_range=[0.1,0.9], curve_path=sketch, dt=0.005, frame_start=1, frame_end=n_frames, collection_name=working_collection_name)
         for inst in instances:
+            # Rigid body configuration.
             bpy.context.scene.rigidbody_world.collection.objects.link(inst)
+            inst.rigid_body.type = 'ACTIVE'
+            # Rigid body settings.
             inst.rigid_body.mass = 30.0
-            inst.rigid_body.friction = 0.5
-            inst.rigid_body.restitution = 0.1
             inst.rigid_body.enabled = True
-            #inst.rigid_body.kinematic = True
-            # Animate damping. https://blender.stackexchange.com/questions/130889/insert-keyframe-for-rigid-body-properties-for-object-python-script-blender
-            inst.rigid_body.linear_damping = 1.0
-            inst.keyframe_insert(data_path="rigid_body.linear_damping",frame=0)
-            inst.keyframe_insert(data_path="rigid_body.linear_damping",frame=n_frames-50)
-            inst.rigid_body.linear_damping = 0.8
-            inst.keyframe_insert(data_path="rigid_body.linear_damping",frame=n_frames-49)
-            #inst.rigid_body.type = 'PASSIVE'
+            inst.rigid_body.kinematic = False
+            # Rigid body collisions.
             if spawn_types[spawn_type] == "SPHERE":
                 inst.rigid_body.collision_shape = 'SPHERE'
             elif spawn_types[spawn_type] == "BOX":
-                inst.rigid_body.collision_shape = 'SPHERE'
+                inst.rigid_body.collision_shape = 'BOX'
             else:
                 inst.rigid_body.collision_shape = 'CONVEX_HULL'
+            inst.rigid_body.mesh_source = 'DEFORM'
+            # Rigid body collision surface response.
+            inst.rigid_body.friction = 0.5
+            inst.rigid_body.restitution = 0.1
+            # Rigid body dynamics.
+            inst.rigid_body.linear_damping = 1.0
+            inst.rigid_body.angular_damping = 0.1
+            inst.keyframe_insert(data_path="rigid_body.linear_damping",frame=0) # https://blender.stackexchange.com/questions/130889/insert-keyframe-for-rigid-body-properties-for-object-python-script-blender
+            inst.keyframe_insert(data_path="rigid_body.linear_damping",frame=n_frames)
+            damping_frame_start = lerp(mathutils.noise.random(), 10, 60)
+            inst.rigid_body.linear_damping = lerp(mathutils.noise.random(), 0.1, 0.6)
+            inst.keyframe_insert(data_path="rigid_body.linear_damping",frame=n_frames+damping_frame_start)
+            
 
+            
+            
+            
+            
+            
+            
 
-
-
-
+            
 
 
 #
