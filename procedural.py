@@ -7,6 +7,7 @@ import bmesh
 # Try out different isotropic shapes
 # Spawn parameter t
 #  + spawn only after t > a
+# Grow all at the same time.
 # Colors:
 #   + gradient one color
 #   + gradient multiple colors
@@ -39,6 +40,9 @@ import bmesh
 # Interpolate [a,b] using factor t.
 def lerp(t, a, b):
     return (1.0 - t) * a + t * b
+
+def normalize_in_interval(x, t_min, t_max):
+    return (1 / (t_max - t_min)) * x - (t_min / (t_max - t_min))
 
 # https://graphics.pixar.com/library/OrthonormalB/paper.pdf
 # NOTE: n must be normalized!
@@ -216,8 +220,6 @@ def create_penta_sphere(radius=1.0, location=mathutils.Vector((0,0,0)), dest_col
         add_object_to_collection(obj, dest_collection_name)
     return obj
 
-    return obj
-
 def create_cube(size=2, location=mathutils.Vector((0,0,0)), collection_name=None):
     # Make a new BMesh.
     bm = bmesh.new()
@@ -262,7 +264,7 @@ def create_instance(base_obj, pos_vec=mathutils.Vector((0,0,0)), rot_vec=mathuti
         bpy.data.collections[collection_name].objects.link(inst_obj)
     return inst_obj
 
-def instance_on_path(base_obj=None, scale_range=[1,2], curve_path=None, dt=0.01, frame_start=1, frame_end=200, collection_name=None):
+def instance_on_path(base_obj=None, scale_range=[1,2], curve_path=None, t_start=0, dt=0.01, frame_start=1, frame_end=200, collection_name=None):
     """
         Use Blender's "FOLLOW PATH" constraint to find position on given curve (sketch).
         Position is controlled with t in [0,1]
@@ -270,7 +272,7 @@ def instance_on_path(base_obj=None, scale_range=[1,2], curve_path=None, dt=0.01,
     instances = []
     if not base_obj:
         return instances
-    t = 0
+    t = t_start
     cols = generate_5_random_colors_that_fit()
     while t <= 1.0:
         # Create instance in local space. Configure its rotation.
@@ -281,7 +283,8 @@ def instance_on_path(base_obj=None, scale_range=[1,2], curve_path=None, dt=0.01,
         inst.keyframe_insert(data_path="scale", frame=frame_start)
         adaptive_frame_start = lerp(t, frame_start, frame_end)
         inst.keyframe_insert(data_path="scale", frame=adaptive_frame_start)
-        inst_scale = lerp(1.0-t, scale_range[0], scale_range[1])
+        t_01 = normalize_in_interval(t, t_start, 1.0)
+        inst_scale = lerp(1.0-t_01, scale_range[0], scale_range[1])
         inst.scale = mathutils.Vector((inst_scale, inst_scale, inst_scale))
         inst.keyframe_insert(data_path="scale", frame=frame_end)
         # Position on path using "FOLLOW PATH" constraint
@@ -324,7 +327,7 @@ def main():
     
     # For each sketch create animation.
     for sketch in bpy.data.collections[sketch_collection_name].all_objects:
-        instances = instance_on_path(base_obj=base_cube, scale_range=[0.1,0.9], curve_path=sketch, dt=0.005, frame_start=1, frame_end=n_frames, collection_name=working_collection_name)
+        instances = instance_on_path(base_obj=base_cube, scale_range=[0.1,0.9], curve_path=sketch, t_start=0.8, dt=0.006, frame_start=1, frame_end=n_frames, collection_name=working_collection_name)
         for inst in instances:
             # Rigid body configuration.
             bpy.context.scene.rigidbody_world.collection.objects.link(inst)
@@ -351,18 +354,8 @@ def main():
             inst.keyframe_insert(data_path="rigid_body.linear_damping",frame=n_frames)
             damping_frame_start = lerp(mathutils.noise.random(), 10, 60)
             inst.rigid_body.linear_damping = lerp(mathutils.noise.random(), 0.1, 0.6)
-            inst.keyframe_insert(data_path="rigid_body.linear_damping",frame=n_frames+damping_frame_start)
+            #inst.keyframe_insert(data_path="rigid_body.linear_damping",frame=n_frames+damping_frame_start)
             
-
-            
-            
-            
-            
-            
-            
-
-            
-
 
 #
 # Script entry point.
