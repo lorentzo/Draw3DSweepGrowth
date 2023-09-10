@@ -2,6 +2,7 @@
 import bpy
 import mathutils
 import bmesh
+import math
 
 # TODO
 # Try out different isotropic shapes
@@ -284,7 +285,11 @@ def instance_on_path(base_obj=None, scale_range=[1,2], curve_path=None, t_start=
         adaptive_frame_start = lerp(t, frame_start, frame_end)
         inst.keyframe_insert(data_path="scale", frame=adaptive_frame_start)
         t_01 = normalize_in_interval(t, t_start, 1.0)
+        # Change scale using lerp.
         inst_scale = lerp(1.0-t_01, scale_range[0], scale_range[1])
+        # Change scale using sin.
+        #t_sin = math.sin(t_01*10.0)
+        #inst_scale = lerp(t_sin, scale_range[0], scale_range[1])
         inst.scale = mathutils.Vector((inst_scale, inst_scale, inst_scale))
         inst.keyframe_insert(data_path="scale", frame=frame_end)
         # Position on path using "FOLLOW PATH" constraint
@@ -327,7 +332,7 @@ def main():
     
     # For each sketch create animation.
     for sketch in bpy.data.collections[sketch_collection_name].all_objects:
-        instances = instance_on_path(base_obj=base_cube, scale_range=[0.1,0.9], curve_path=sketch, t_start=0.8, dt=0.006, frame_start=1, frame_end=n_frames, collection_name=working_collection_name)
+        instances = instance_on_path(base_obj=base_penta_sphere, scale_range=[0.2,1.3], curve_path=sketch, t_start=0.0, dt=0.004, frame_start=1, frame_end=n_frames, collection_name=working_collection_name)
         for inst in instances:
             # Rigid body configuration.
             bpy.context.scene.rigidbody_world.collection.objects.link(inst)
